@@ -1,0 +1,231 @@
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  signInWithEmailAndPassword, 
+  signInAnonymously, 
+  signOut, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  getDocs, 
+  deleteDoc, 
+  doc, 
+  serverTimestamp 
+} from 'firebase/firestore';
+
+// የ Firebase ውቅር መረጃዎ
+const firebaseConfig = {
+  apiKey: "AIzaSyCMuAOtiYz9hMmgsDlqE0P2DSjlywKVQPg",
+  authDomain: "beki-report.firebaseapp.com",
+  projectId: "beki-report",
+  storageBucket: "beki-report.firebasestorage.app",
+  messagingSenderId: "268458229018",
+  appId: "1:268458229018:web:72f98be9a36af3423d80a3"
+};
+
+// Firebase መጀመር (Initialize)
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+export default function ReportApp() {
+  const [user, setUser] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  
+  // የሪፖርት መስኮች ግብአቶች
+  const [reportText, setReportText] = useState('');
+  const [department, setDepartment] = useState('');
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  // ዩዘር መኖሩን ማረጋገጥ
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (currentUser && currentUser.email) {
+        setIsAdmin(true);
+      } else {
+        setIsAdmin(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // ሪፖርቶችን ከ Firestore ማምጣት
+  const fetchReports = async () => {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'reports'));
+      const reportList = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setReports(reportList);
+    } catch (err) {
+      console.error("ሪፖርት በማንበብ ላይ ስህተት ተፈጥሯል:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchReports();
+  }, []);
+
+  // በአስተዳዳሪ ኢሜይል መግባት (Login)
+  const handleAdminLogin = async (e) => {
+    e.preventDefault();
+    setError('');
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (err) {
+      setError('ግንኙነት አልተሳካም። ኢሜይል ወይም የይለፍ ቃል ልክ አይደለም።');
+    }
+  };
+
+  // ማንነቱን ሳይገልጽ (Anonymous) መግባት ለተጠቃሚዎች
+  const handleAnonymousLogin = async () => {
+    setError('');
+    try {
+      await signInAnonymously(auth);
+    } catch (err) {
+      setError('በअነonymous መግባት አልተቻለም።');
+    }
+  };
+
+  // ከ አካውንት መውጣት (Logout)
+  const handleLogout = async () => {
+    await signOut(auth);
+  };
+
+  // ሪፖርት መላክ
+  const handleSubmitReport = async (e) => {
+    e.preventDefault();
+    if (!reportText.trim() || !department.trim()) return;
+
+    setLoading(true);
+    try {
+      await addDoc(collection(db, 'reports'), {
+        department,
+        reportText,
+        createdAt: serverTimestamp(),
+        sender: user.email ? 'Admin' : 'Anonymous User'
+      });
+      setReportText('');
+      setDepartment('');
+      fetchReports();
+      alert('ሪፖርቱ በትክክል ተልኳል!');
+    } catch (err) {
+      alert('ሪፖርቱን መላክ አልተቻለም።');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ሪፖርት መሰረዝ (ለአድሚን ብቻ)
+  const handleDeleteReport = async (id) => {
+    if (window.confirm('ይህን ሪፖርት ማጥፋት ይፈልጋሉ?')) {
+      try {
+        await deleteDoc(doc(db, 'reports', id));
+        fetchReports();
+      } catch (err) {
+        alert('ማጥፋት አልተቻለም።');
+      }
+    }
+  };
+
+  return (
+    <div style={{ padding: '20px', fontFamily: 'sans-serif', maxWidth: '600px', margin: 'auto' }}>
+      <h2>የስራ አፈፃፀም ሪፖርት ማቀበያ አፕ (Report App)</h2>
+
+      {/* የዩዘር ሁኔታ እና መግቢያ/መውጫ */}
+      {!user ? (
+        <div style={{ background: '#f4f4f4', padding: '15px', borderRadius: '5px', marginBottom: '20px' }}>
+          <h3>ግባ (Login)</h3>
+          {error && <p style={{ color: 'red' }}>{error}</p>}
+          
+          <form onSubmit={handleAdminLogin} style={{ marginBottom: '10px' }}>
+            <h4>ለአስተዳዳሪ (Admin):</h4>
+            <input 
+              type="email" 
+              placeholder="ኢሜይል" 
+              value={email} 
+              onChange={(e) => setEmail(e.target.value)} 
+              required 
+              style={{ display: 'block', width: '100%', marginBottom: '8px', padding: '8px' }}
+            />
+            <input 
+              type="password" 
+              placeholder="የይለፍ ቃል" 
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)} 
+              required 
+              style={{ display: 'block', width: '100%', marginBottom: '8px', padding: '8px' }}
+            />
+            <button type="submit" style={{ background: 'blue', color: 'white', padding: '10px', border: 'none', width: '100%' }}>
+              እንደ አድሚን ግባ
+            </button>
+          </form>
+
+          <button onClick={handleAnonymousLogin} style={{ background: 'green', color: 'white', padding: '10px', border: 'none', width: '100%', marginTop: '10px' }}>
+            ያለ አካውንት (እንደ ተጠቃሚ) ግባ
+          </button>
+        </div>
+      ) : (
+        <div style={{ background: '#e2f0d9', padding: '10px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>ገብተዋል: {user.email || 'ተጠቃሚ (Anonymous)'}</span>
+          <button onClick={handleLogout} style={{ background: 'red', color: 'white', padding: '5px 10px', border: 'none' }}>ውጣ (Logout)</button>
+        </div>
+      )}
+
+      {/* ሪፖርት መጻፊያ ፎርም */}
+      {user && (
+        <form onSubmit={handleSubmitReport} style={{ background: '#fff', padding: '15px', border: '1px solid #ccc', borderRadius: '5px', marginBottom: '20px' }}>
+          <h3>አዲስ ሪፖርት አስገባ</h3>
+          <input 
+            type="text" 
+            placeholder="የጽ/ቤት/የስራ ክፍል ስም (Department)" 
+            value={department} 
+            onChange={(e) => setDepartment(e.target.value)} 
+            required
+            style={{ display: 'block', width: '100%', marginBottom: '10px', padding: '8px' }}
+          />
+          <textarea 
+            placeholder="የሪፖርቱ ዝርዝር ሁኔታ..." 
+            value={reportText} 
+            onChange={(e) => setReportText(e.target.value)} 
+            required
+            rows="4"
+            style={{ display: 'block', width: '100%', marginBottom: '10px', padding: '8px' }}
+          />
+          <button type="submit" disabled={loading} style={{ background: 'darkblue', color: 'white', padding: '10px', border: 'none', width: '100%' }}>
+            {loading ? 'በመላክ ላይ...' : 'ሪፖርት ላክ'}
+          </button>
+        </form>
+      )}
+
+      {/* የተላኩ ሪፖርቶች ዝርዝር */}
+      <div>
+        <h3>የተላኩ ሪፖርቶች ዝርዝር</h3>
+        {reports.length === 0 ? (p => <p>ምንም ሪፖርት አልተገኘምርም።</p>)() : (
+          reports.map((rep) => (
+            <div key={rep.id} style={{ background: '#f9f9f9', border: '1px solid #ddd', padding: '10px', marginBottom: '10px', borderRadius: '5px' }}>
+              <strong>ክፍል: {rep.department}</strong>
+              <p>{rep.reportText}</p>
+              <small style={{ color: 'gray' }}>ላኪ: {rep.sender}</small>
+              {isAdmin && (
+                <button onClick={() => handleDeleteReport(rep.id)} style={{ display: 'block', background: 'darkred', color: 'white', border: 'none', padding: '5px 10px', marginTop: '5px' }}>
+                  አጥፋ (Delete)
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
